@@ -1,3 +1,5 @@
+
+```go
 package main
 
 import (
@@ -24,3 +26,17 @@ func helloHandler(w http.ResponseWriter, req *http.Request) {
 		fmt.Fprintf(w, "Header[%q] = %q\n", k, v)
 	}
 }
+
+```
+
+
+```
+% curl http://localhost:8989      
+URL.Path = "/"
+```
+
+```
+% curl http://localhost:8989/hello
+Header["User-Agent"] = ["curl/7.64.1"]
+Header["Accept"] = ["*/*"]
+```
