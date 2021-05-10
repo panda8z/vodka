@@ -1,4 +1,7 @@
+# 【Go从入门到精通】Day02 造一个自己的路由器引擎
 
+
+## 探索使用标准库运行HTTP服务程序
 
 ### 用标准库提供的方式运行HTTP服务程序
 
@@ -76,7 +79,7 @@ type Handler interface {
 }
 ```
 
-### 使用统一的Handler
+## 尝试改变：使用统一的Handler
 
 将上一节的程序作如下改写：
 
@@ -352,5 +355,223 @@ type Request struct {
 
 通过以上源代码我们能看到 通过 http.Request{} 结构体，我们可以获得HTTP请求的 Method、Header、Body、Proto等等所有信息。
 
+
+## 开始打造 Vodka Engine 路由框架
+
+有了标准库中的 http.ListenAndServe()函数，http.Handler 接口并且结合我们对 http.Request 的理解，
+很容易想到我们再造一个独一无二的 Handler 来处理所有请求，然后我们自己处理路由逻辑。
+
 ### 重写 Engine{} 结构体
 
+
+```go
+package vodka
+
+import (
+	"fmt"
+	"net/http"
+)
+
+// HandlerFunc 定义了 Engine 自己的处理器
+type HandlerFunc func(w http.ResponseWriter, r *http.Request)
+
+// Engine 定义了 Vodka 框架的引擎
+type Engine struct {
+	router map[string]HandlerFunc
+}
+
+```
+
+
+
+### 让 Engine 实现 http.Handler 接口
+
+
+```go 
+
+
+package vodka
+
+import (
+	"fmt"
+	"net/http"
+)
+
+// HandlerFunc 定义了 Engine 自己的处理器
+type HandlerFunc func(w http.ResponseWriter, r *http.Request)
+
+// Engine 定义了 Vodka 框架的引擎
+type Engine struct {
+	router map[string]HandlerFunc
+}
+
+
+func (e *Engine) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+
+	key := req.Method + "-" + req.URL.Path
+	if handler, ok := e.router[key]; ok {
+		handler(w, req)
+	} else {
+		fmt.Fprintf(w, "404 NOT FOUND: %s\n", req.URL)
+	}
+}
+```
+
+### 给 Engine 增加 New方法
+
+```go 
+package vodka
+
+import (
+	"fmt"
+	"net/http"
+)
+
+// HandlerFunc 定义了 Engine 自己的处理器
+type HandlerFunc func(w http.ResponseWriter, r *http.Request)
+
+// Engine 定义了 Vodka 框架的引擎
+type Engine struct {
+	router map[string]HandlerFunc
+}
+
+func New() *Engine {
+	return &Engine{router: make(map[string]HandlerFunc)}
+}
+
+func (e *Engine) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+
+	key := req.Method + "-" + req.URL.Path
+	if handler, ok := e.router[key]; ok {
+		handler(w, req)
+	} else {
+		fmt.Fprintf(w, "404 NOT FOUND: %s\n", req.URL)
+	}
+}
+
+```
+
+### 给 Engine 增加 addRouter() 私有方法和 GET() POST() 公有方法
+
+```go 
+package vodka
+
+import (
+	"fmt"
+	"net/http"
+)
+
+// HandlerFunc 定义了 Engine 自己的处理器
+type HandlerFunc func(w http.ResponseWriter, r *http.Request)
+
+// Engine 定义了 Vodka 框架的引擎
+type Engine struct {
+	router map[string]HandlerFunc
+}
+
+func New() *Engine {
+	return &Engine{router: make(map[string]HandlerFunc)}
+}
+
+func (e *Engine) addRouter(method, pattern string, handler HandlerFunc) {
+	key := method + "-" + pattern
+	e.router[key] = handler
+}
+
+func (e *Engine) GET(pattern string, handler HandlerFunc) {
+	e.addRouter("GET", pattern, handler)
+}
+
+func (e *Engine) POST(pattern string, handler HandlerFunc) {
+	e.addRouter("POST", pattern, handler)
+}
+
+func (e *Engine) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+
+	key := req.Method + "-" + req.URL.Path
+	if handler, ok := e.router[key]; ok {
+		handler(w, req)
+	} else {
+		fmt.Fprintf(w, "404 NOT FOUND: %s\n", req.URL)
+	}
+}
+```
+
+### 给 Engine 增加 Run() 方法
+
+```go
+// Run 调用**标准库**的 `http.ListenAndServe` 方法启动服务器程序
+// 因为 **Engine** 实现了 `http.Handler` 接口 所以这里的第二个参数可以直接传 **Engine**。
+func (e *Engine) Run(addr string) error {
+	return http.ListenAndServe(addr, e)
+}
+
+```
+
+### 完整的 engine.go
+
+```go
+package vodka
+
+import (
+	"fmt"
+	"net/http"
+)
+
+// HandlerFunc 定义了 Engine 自己的处理器。
+type HandlerFunc func(w http.ResponseWriter, r *http.Request)
+
+// Engine 定义了 Vodka 框架的引擎。
+type Engine struct {
+	router map[string]HandlerFunc
+}
+
+func New() *Engine {
+	return &Engine{router: make(map[string]HandlerFunc)}
+}
+
+func (e *Engine) addRouter(method, pattern string, handler HandlerFunc) {
+	key := method + "-" + pattern
+	e.router[key] = handler
+}
+
+func (e *Engine) GET(pattern string, handler HandlerFunc) {
+	e.addRouter("GET", pattern, handler)
+}
+
+func (e *Engine) POST(pattern string, handler HandlerFunc) {
+	e.addRouter("POST", pattern, handler)
+}
+
+// Run 调用**标准库**的 `http.ListenAndServe` 方法启动服务器程序。
+// 因为 **Engine** 实现了 `http.Handler` 接口 所以这里的第二个参数可以直接传 **Engine**。
+func (e *Engine) Run(addr string) error {
+	return http.ListenAndServe(addr, e)
+}
+
+// ServeHTTP 实现了 `http.Handler` 接口。
+func (e *Engine) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+
+	key := req.Method + "-" + req.URL.Path
+	if handler, ok := e.router[key]; ok {
+		handler(w, req)
+	} else {
+		fmt.Fprintf(w, "404 NOT FOUND: %s\n", req.URL)
+	}
+}
+
+```
+
+
+### 测试
+
+```
+% curl http://localhost:8989/hello
+Header["User-Agent"] = ["curl/7.64.1"]
+Header["Accept"] = ["*/*"]
+% curl http://localhost:8989      
+URL.Path = "/"
+% curl http://localhost:8989/panda
+404 NOT FOUND: /panda
+
+```
